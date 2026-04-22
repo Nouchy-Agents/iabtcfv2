@@ -1,5 +1,5 @@
 # iab-tcf-v2
-Go client library to read and encode IAB TCF v2.0 TC Strings.
+Go client library to read and encode IAB TCF v2.0/v2.2/v2.3 TC Strings.
 ### Installation
 
 ```
@@ -45,7 +45,8 @@ You can find more information about segment types [here](https://github.com/Inte
 Use `GetVersion(s string) (version TcfVersion, err error)` to read the cookie version from a TC String or a *Core String* segment value. This function also supports TCF v1.1 consent strings:
 - `TcfVersionUndefined` = undefined
 - `TcfVersion1` = TCF v1.1
-- `TcfVersion2` = TCF v2.0
+- `TcfVersion2` = TCF v2.0/v2.2/v2.3
+- `TcfVersion23` = TCF v2.3 (same as TcfVersion2; v2.3 rules determined by TcfPolicyVersion >= 5)
 
 #### Example
 ```
@@ -108,7 +109,7 @@ func main() {
       ConsentScreen: 1,
       ConsentLanguage: "EN",
       VendorListVersion: 32,
-      TcfPolicyVersion: 2,
+      TcfPolicyVersion: 5, // TCF v2.3 — DisclosedVendors segment will be mandatory
       PurposesConsent: map[int]bool{
         1:  true,
         2:  true,
@@ -187,4 +188,52 @@ func main() {
     fmt.Printf("user has given consent to publisher purpose 2")
   }
 }
+```
+
+### TCF v2.3 Compliance
+
+As of TCF v2.3 (policyVersion >= 5, mandatory from Feb 28, 2026), the **DisclosedVendors segment is mandatory** in all TC Strings.
+
+#### What changed in v2.3
+
+| Change | Description |
+|--------|-------------|
+| **DisclosedVendors mandatory** | Must appear immediately after Core String for policyVersion >= 5 |
+| **Segment order enforced** | Strict order: `[Core String].[DisclosedVendors].[PublisherTC]` |
+| **Deadline validation** | TC Strings created after 2026-02-28 without DV are rejected at decode |
+
+#### Validate a TC String for v2.3 compliance
+
+Use `Validate() error` on the `TCData` structure:
+```
+var tcData, err = iabtcfv2.Decode(tcString)
+if err != nil {
+  fmt.Printf("Decode error: %v", err)
+}
+if err := tcData.Validate(); err != nil {
+  fmt.Printf("Validation error: %v", err)
+}
+```
+
+#### Encode a v2.3 compliant TC String
+
+When `TcfPolicyVersion >= 5`, the `DisclosedVendors` segment is automatically included even if not explicitly set:
+```
+tcData := &TCData{
+  CoreString: &CoreString{
+    Version: 2,
+    TcfPolicyVersion: 5, // v2.3 — DisclosedVendors will be auto-created
+    // ... other fields
+  },
+  DisclosedVendors: nil, // Will be auto-created as empty DV segment
+}
+tcString := tcData.ToTCString() // Always includes DV segment for v2.3
+```
+
+#### Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `TcfVersion23` | 2 | TCF v2.3 version (same as TcfVersion2; v2.3 rules determined by policyVersion) |
+| `TcfPolicyVersion23` | 5 | Policy version introduced by TCF v2.3 |
 ```

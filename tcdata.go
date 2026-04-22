@@ -1,6 +1,10 @@
 package iabtcfv2
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 type TCData struct {
 	CoreString       *CoreString
@@ -64,16 +68,48 @@ func (t *TCData) GetPubRestrictionsForPurpose(id int) []*PubRestriction {
 	return t.CoreString.GetPubRestrictionsForPurpose(id)
 }
 
+// Validate checks the TCData for TCF v2.3 compliance.
+// Returns an error if the string does not meet v2.3 requirements.
+func (t *TCData) Validate() error {
+	if t.CoreString == nil {
+		return fmt.Errorf("core string is required")
+	}
+
+	// TCF v2.3: DisclosedVendors is mandatory when policyVersion >= 5
+	if t.CoreString.Version >= int(TcfVersion2) && t.CoreString.TcfPolicyVersion >= TcfPolicyVersion23 {
+		if t.DisclosedVendors == nil {
+			return fmt.Errorf("TCF v2.3: DisclosedVendors segment is mandatory for policyVersion >= %d", TcfPolicyVersion23)
+			}
+	}
+
+	return nil
+}
+
+// v23Deadline is the IAB TCF v2.3 mandatory adoption deadline
+var v23Deadline = time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC)
+
+
 // Returns structure as a base64 raw url encoded string
+// Encoder produces canonical order: Core → DisclosedVendors → PublisherTC
+// Note: Per spec, only CoreString must be first; other segments may appear in any order.
 func (t *TCData) ToTCString() string {
 	var segments []string
 
 	if t.CoreString != nil {
 		segments = append(segments, t.CoreString.Encode())
 	}
-	if t.DisclosedVendors != nil {
+
+	// TCF v2.3: DisclosedVendors is mandatory (presence) when policyVersion >= 5
+	if t.CoreString != nil && t.CoreString.Version >= int(TcfVersion2) && t.CoreString.TcfPolicyVersion >= TcfPolicyVersion23 {
+		if t.DisclosedVendors == nil {
+			t.DisclosedVendors = &DisclosedVendors{SegmentType: int(SegmentTypeDisclosedVendors)}
+		}
+		segments = append(segments, t.DisclosedVendors.Encode())
+	} else if t.DisclosedVendors != nil {
+		// Pre-v2.3: DisclosedVendors is optional
 		segments = append(segments, t.DisclosedVendors.Encode())
 	}
+
 	if t.PublisherTC != nil {
 		segments = append(segments, t.PublisherTC.Encode())
 	}

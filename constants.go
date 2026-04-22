@@ -15,7 +15,14 @@ const (
 	TcfVersionUndefined TcfVersion = -1
 	TcfVersion1         TcfVersion = 1
 	TcfVersion2         TcfVersion = 2
+	TcfVersion23        TcfVersion = 2 // TCF v2.3 uses Version=2 in the TC String; policyVersion >= 5 determines v2.3 rules
 )
+
+// TcfPolicyVersion23 is the policy version introduced by TCF v2.3
+const TcfPolicyVersion23 = 5
+
+// TcfV23Deadline is the Unix timestamp for the TCF v2.3 policy enforcement deadline (Sept 1, 2023 UTC)
+const TcfV23Deadline int64 = 1693526400
 
 type RestrictionType int
 
