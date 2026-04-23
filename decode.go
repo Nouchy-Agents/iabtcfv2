@@ -54,13 +54,15 @@ func GetSegmentType(segment string) (segmentType SegmentType, err error) {
 }
 
 // Decode a TC String and returns it as a TCData structure
-// A valid TC String must start with a Core String segment
-// A TC String can optionally and arbitrarily ordered contain:
-// - Disclosed Vendors
-// - Publisher TC
+// A valid TC String must start with a Core String segment.
+// Subsequent segments (DisclosedVendors, PublisherTC) can appear in any order,
+// identified by their SegmentType field.
+// TCF v2.3 (policyVersion >= 5): DisclosedVendors segment is MANDATORY.
 func Decode(tcString string) (t *TCData, err error) {
 	t = &TCData{}
 	mapSegments := map[SegmentType]bool{}
+	segmentOrder := []SegmentType{}
+
 	for i, v := range strings.Split(tcString, ".") {
 		segmentType, err := GetSegmentType(v)
 		if err != nil {
@@ -76,6 +78,7 @@ func Decode(tcString string) (t *TCData, err error) {
 			if err == nil {
 				t.DisclosedVendors = segment
 				mapSegments[SegmentTypeDisclosedVendors] = true
+				segmentOrder = append(segmentOrder, SegmentTypeDisclosedVendors)
 			}
 			break
 		case SegmentTypePublisherTC:
@@ -86,6 +89,7 @@ func Decode(tcString string) (t *TCData, err error) {
 			if err == nil {
 				t.PublisherTC = segment
 				mapSegments[SegmentTypePublisherTC] = true
+				segmentOrder = append(segmentOrder, SegmentTypePublisherTC)
 			}
 			break
 		default:
@@ -97,6 +101,7 @@ func Decode(tcString string) (t *TCData, err error) {
 				t.CoreString = segment
 				if i == 0 {
 					mapSegments[SegmentTypeCoreString] = true
+					segmentOrder = append(segmentOrder, SegmentTypeCoreString)
 				}
 			}
 			break
@@ -105,6 +110,22 @@ func Decode(tcString string) (t *TCData, err error) {
 
 	if mapSegments[SegmentTypeCoreString] == false {
 		return nil, fmt.Errorf("invalid TC string")
+	}
+
+	// TCF v2.3 validation: DisclosedVendors is mandatory when policyVersion >= 5
+	if t.CoreString.Version >= int(TcfVersion2) && t.CoreString.TcfPolicyVersion >= TcfPolicyVersion23 {
+		if !mapSegments[SegmentTypeDisclosedVendors] {
+			return nil, fmt.Errorf("TCF v2.3: DisclosedVendors segment is mandatory for policyVersion >= %d", TcfPolicyVersion23)
+		}
+		// Core String must be the first segment
+		if segmentOrder[0] != SegmentTypeCoreString {
+			return nil, fmt.Errorf("TCF v2.3: Core String must be the first segment")
+		}
+	}
+
+	// Additional validation: strings created after v2.3 deadline must have DisclosedVendors
+	if t.CoreString.Created.After(v23Deadline) && !mapSegments[SegmentTypeDisclosedVendors] {
+		return nil, fmt.Errorf("TCF v2.3: DisclosedVendors segment is mandatory for TC Strings created after %s", v23Deadline.Format("2006-01-02"))
 	}
 
 	return t, nil
