@@ -21,8 +21,8 @@ const (
 // TcfPolicyVersion23 is the policy version introduced by TCF v2.3
 const TcfPolicyVersion23 = 5
 
-// TcfV23Deadline is the Unix timestamp for the TCF v2.3 policy enforcement deadline (Sept 1, 2023 UTC)
-const TcfV23Deadline int64 = 1693526400
+// TcfV23Deadline is the Unix timestamp for the TCF v2.3 policy enforcement deadline (Feb 28, 2026 00:00:00 UTC)
+const TcfV23Deadline int64 = 1772236800
 
 type RestrictionType int
 

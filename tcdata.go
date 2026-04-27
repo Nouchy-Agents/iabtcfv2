@@ -68,6 +68,22 @@ func (t *TCData) GetPubRestrictionsForPurpose(id int) []*PubRestriction {
 	return t.CoreString.GetPubRestrictionsForPurpose(id)
 }
 
+// IsVendorDisclosed returns true if the given vendor ID is in the DisclosedVendors segment.
+func (t *TCData) IsVendorDisclosed(id int) bool {
+	if t.DisclosedVendors == nil {
+		return false
+	}
+	return t.DisclosedVendors.IsVendorDisclosed(id)
+}
+
+// IsV23 returns true if the TC string uses TCF v2.3 policy (TcfPolicyVersion >= 5).
+func (t *TCData) IsV23() bool {
+	if t.CoreString == nil {
+		return false
+	}
+	return t.CoreString.TcfPolicyVersion >= TcfPolicyVersion23
+}
+
 // Validate checks the TCData for TCF v2.3 compliance.
 // Returns an error if the string does not meet v2.3 requirements.
 func (t *TCData) Validate() error {
@@ -75,18 +91,21 @@ func (t *TCData) Validate() error {
 		return fmt.Errorf("core string is required")
 	}
 
-	// TCF v2.3: DisclosedVendors is mandatory when policyVersion >= 5
-	if t.CoreString.Version >= int(TcfVersion2) && t.CoreString.TcfPolicyVersion >= TcfPolicyVersion23 {
+	// After the deadline: TcfPolicyVersion >= 5 AND DisclosedVendors required
+	if t.CoreString.Created.After(v23Deadline) {
+		if t.CoreString.TcfPolicyVersion < TcfPolicyVersion23 {
+			return fmt.Errorf("TCF v2.3: TC Strings created after %s must have policyVersion >= %d", v23Deadline.Format("2006-01-02"), TcfPolicyVersion23)
+		}
 		if t.DisclosedVendors == nil {
-			return fmt.Errorf("TCF v2.3: DisclosedVendors segment is mandatory for policyVersion >= %d", TcfPolicyVersion23)
-			}
+			return fmt.Errorf("TCF v2.3: DisclosedVendors segment is mandatory for TC Strings created after %s", v23Deadline.Format("2006-01-02"))
+		}
 	}
 
 	return nil
 }
 
 // v23Deadline is the IAB TCF v2.3 mandatory adoption deadline
-var v23Deadline = time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC)
+var v23Deadline = time.Unix(TcfV23Deadline, 0).UTC()
 
 
 // Returns structure as a base64 raw url encoded string

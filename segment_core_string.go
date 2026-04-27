@@ -79,8 +79,11 @@ func (c *CoreString) IsPurposeAllowed(id int) bool {
 }
 
 // Returns true if legitimate interest is established for purpose id
-// and user didn't exercise their right to object
 func (c *CoreString) IsPurposeLIAllowed(id int) bool {
+	// TCF v2.3: Purpose 1 cannot be established via legitimate interest
+	if id == 1 && c.TcfPolicyVersion >= TcfPolicyVersion23 {
+		return false
+	}
 	return c.PurposesLITransparency[id]
 }
 

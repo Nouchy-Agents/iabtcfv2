@@ -112,10 +112,14 @@ func Decode(tcString string) (t *TCData, err error) {
 		return nil, fmt.Errorf("invalid TC string")
 	}
 
-	// TCF v2.3 validation: DisclosedVendors is mandatory when policyVersion >= 5
-	if t.CoreString.Version >= int(TcfVersion2) && t.CoreString.TcfPolicyVersion >= TcfPolicyVersion23 {
+	// TCF v2.3: After Feb 28, 2026, TC strings must have TcfPolicyVersion >= 5
+	// AND a DisclosedVendors segment. Before March 1, 2026, DV is optional.
+	if t.CoreString.Created.After(v23Deadline) {
+		if t.CoreString.TcfPolicyVersion < TcfPolicyVersion23 {
+			return nil, fmt.Errorf("TCF v2.3: TC Strings created after %s must have policyVersion >= %d", v23Deadline.Format("2006-01-02"), TcfPolicyVersion23)
+		}
 		if !mapSegments[SegmentTypeDisclosedVendors] {
-			return nil, fmt.Errorf("TCF v2.3: DisclosedVendors segment is mandatory for policyVersion >= %d", TcfPolicyVersion23)
+			return nil, fmt.Errorf("TCF v2.3: DisclosedVendors segment is mandatory for TC Strings created after %s", v23Deadline.Format("2006-01-02"))
 		}
 		// Core String must be the first segment
 		if segmentOrder[0] != SegmentTypeCoreString {
@@ -123,13 +127,67 @@ func Decode(tcString string) (t *TCData, err error) {
 		}
 	}
 
-	// Additional validation: strings created after v2.3 deadline must have DisclosedVendors
-	if t.CoreString.Created.After(v23Deadline) && !mapSegments[SegmentTypeDisclosedVendors] {
-		return nil, fmt.Errorf("TCF v2.3: DisclosedVendors segment is mandatory for TC Strings created after %s", v23Deadline.Format("2006-01-02"))
-	}
-
 	return t, nil
 }
+
+// DecodeLenient decodes a TC String without enforcing TCF v2.3 deadline/policyVersion checks.
+// Accepts any well-formed TC string regardless of creation date or policy version.
+func DecodeLenient(tcString string) (t *TCData, err error) {
+	t = &TCData{}
+	mapSegments := map[SegmentType]bool{}
+	segmentOrder := []SegmentType{}
+
+	for i, v := range strings.Split(tcString, ".") {
+		segmentType, err := GetSegmentType(v)
+		if err != nil {
+			return nil, err
+		}
+
+		switch segmentType {
+		case SegmentTypeDisclosedVendors:
+			if mapSegments[SegmentTypeDisclosedVendors] {
+				return nil, fmt.Errorf("duplicate Disclosed Vendors segment")
+			}
+			segment, err := DecodeDisclosedVendors(v)
+			if err == nil {
+				t.DisclosedVendors = segment
+				mapSegments[SegmentTypeDisclosedVendors] = true
+				segmentOrder = append(segmentOrder, SegmentTypeDisclosedVendors)
+			}
+		case SegmentTypePublisherTC:
+			if mapSegments[SegmentTypePublisherTC] {
+				return nil, fmt.Errorf("duplicate Publisher TC segment")
+			}
+			segment, err := DecodePublisherTC(v)
+			if err == nil {
+				t.PublisherTC = segment
+				mapSegments[SegmentTypePublisherTC] = true
+				segmentOrder = append(segmentOrder, SegmentTypePublisherTC)
+			}
+		default:
+			if mapSegments[SegmentTypeCoreString] {
+				return nil, fmt.Errorf("duplicate Core String segment")
+			}
+			segment, err := DecodeCoreString(v)
+			if err == nil {
+				t.CoreString = segment
+				if i == 0 {
+					mapSegments[SegmentTypeCoreString] = true
+					segmentOrder = append(segmentOrder, SegmentTypeCoreString)
+				}
+			}
+		}
+	}
+
+	if !mapSegments[SegmentTypeCoreString] {
+		return nil, fmt.Errorf("invalid TC string")
+	}
+
+	// NO deadline/policyVersion checks — lenient mode
+	_ = segmentOrder
+	return t, nil
+}
+
 
 // Decodes a Core String value and returns it as a CoreString structure
 func DecodeCoreString(coreString string) (c *CoreString, err error) {
