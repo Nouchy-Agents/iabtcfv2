@@ -15,11 +15,39 @@ The package defines a `TCData` structure with the three segments a TC String can
 
 To decode a TC String, use `Decode(tcString string) (t *TCData, err error)`.
 
+`Decode()` enforces TCF v2.3 compliance rules: TC Strings created after **February 28, 2026** must have `TcfPolicyVersion >= 5` and include a `DisclosedVendors` segment. Strings that do not meet these requirements are rejected with an error.
+
+Use this function in **production** to validate user consent before processing personal data.
+
 NOTE : A valid TC String must start with a *Core String* segment value.
 ```
 var tcData, err = iabtcfv2.Decode("COxR03kOxR1CqBcABCENAgCMAP_AAH_AAAqIF3EXySoGY2thI2YVFxBEIYwfJxyigMgChgQIsSwNQIeFLBoGLiAAHBGYJAQAGBAEEACBAQIkHGBMCQAAgAgBiRCMQEGMCzNIBIBAggEbY0FACCVmHkHSmZCY7064O__QLuIJEFQMAkSBAIACLECIQwAQDiAAAYAlAAABAhIaAAgIWBQEeAAAACAwAAgAAABBAAACAAQAAICIAAABAAAgAiAQAAAAGgIQAACBABACRIAAAEANCAAgiCEAQg4EAo4AAA.IF3EXySoGY2tho2YVFzBEIYwfJxyigMgShgQIsS0NQIeFLBoGPiAAHBGYJAQAGBAkkACBAQIsHGBMCQABgAgRiRCMQEGMDzNIBIBAggkbY0FACCVmnkHS3ZCY70-6u__QA.elAAAAAAAWA")
 if err != nil {
   fmt.Printf("%v", err)
+}
+```
+
+#### DecodeLenient — for debugging and analysis only
+
+> ⚠️ **`DecodeLenient()` is NOT suitable for production consent checking.**
+> It bypasses TCF v2.3 compliance rules and will accept TC Strings that are
+> invalid under the current policy (e.g. missing `DisclosedVendors` segment,
+> `TcfPolicyVersion < 5` after the deadline). Only use it for debugging,
+> logging, or forensic analysis where you need to inspect the contents of a
+> non-compliant TC String. **Never use it to decide whether to process user data.**
+
+```
+// DecodeLenient: extracts TC data regardless of v2.3 compliance.
+// Use ONLY for debugging/analysis — never for consent decisions in production.
+tcData, err := iabtcfv2.DecodeLenient(tcString)
+if err != nil {
+  // format is completely invalid — not a TC string at all
+  fmt.Printf("%v", err)
+}
+
+// If you need to check compliance separately:
+if err := tcData.Validate(); err != nil {
+  fmt.Printf("Non-compliant: %v", err)
 }
 ```
 
@@ -192,19 +220,31 @@ func main() {
 
 ### TCF v2.3 Compliance
 
-As of TCF v2.3 (policyVersion >= 5, mandatory from Feb 28, 2026), the **DisclosedVendors segment is mandatory** in all TC Strings.
+As of TCF v2.3 (policyVersion >= 5, mandatory from Feb 28, 2026), the following rules apply:
+
+#### Decode() enforcement policy
+
+| TC String creation date | TcfPolicyVersion | Has DisclosedVendors? | `Decode()` result |
+|------------------------|------------------|----------------------|-------------------|
+| Before March 1, 2026 | Any | Any | ✅ Valid |
+| After Feb 28, 2026 | >= 5 | Yes | ✅ Valid |
+| After Feb 28, 2026 | >= 5 | No | ❌ Invalid |
+| After Feb 28, 2026 | < 5 | Any | ❌ Invalid |
+
+**`DecodeLenient()`** bypasses these checks — see warning above.
 
 #### What changed in v2.3
 
 | Change | Description |
 |--------|-------------|
-| **DisclosedVendors mandatory** | Must appear immediately after Core String for policyVersion >= 5 |
+| **DisclosedVendors mandatory** | Must appear immediately after Core String for TC Strings created after Feb 28, 2026 |
+| **Deadline validation** | TC Strings created after 2026-02-28 without DV or with `TcfPolicyVersion < 5` are rejected by `Decode()` |
+| **Purpose 1 LI restricted** | `IsPurposeLIAllowed(1)` returns `false` for v2.3 strings — Purpose 1 cannot be established via legitimate interest |
 | **Segment order enforced** | Strict order: `[Core String].[DisclosedVendors].[PublisherTC]` |
-| **Deadline validation** | TC Strings created after 2026-02-28 without DV are rejected at decode |
 
 #### Validate a TC String for v2.3 compliance
 
-Use `Validate() error` on the `TCData` structure:
+Use `Validate() error` on the `TCData` structure. `Validate()` applies the same deadline-based rules as `Decode()`:
 ```
 var tcData, err = iabtcfv2.Decode(tcString)
 if err != nil {
@@ -212,6 +252,24 @@ if err != nil {
 }
 if err := tcData.Validate(); err != nil {
   fmt.Printf("Validation error: %v", err)
+}
+```
+
+#### Check if a TC String follows v2.3 rules
+
+Use `IsV23() bool` on the `TCData` structure:
+```
+if tcData.IsV23() {
+  // TcfPolicyVersion >= 5 — v2.3 rules apply
+}
+```
+
+#### Check if a vendor is disclosed
+
+Use `IsVendorDisclosed(id int) bool` on the `TCData` structure:
+```
+if tcData.IsVendorDisclosed(42) {
+  // vendor 42 is present in the DisclosedVendors segment
 }
 ```
 
@@ -236,4 +294,4 @@ tcString := tcData.ToTCString() // Always includes DV segment for v2.3
 |----------|-------|-------------|
 | `TcfVersion23` | 2 | TCF v2.3 version (same as TcfVersion2; v2.3 rules determined by policyVersion) |
 | `TcfPolicyVersion23` | 5 | Policy version introduced by TCF v2.3 |
-```
+| `TcfV23Deadline` | 1772236800 | Unix timestamp for TCF v2.3 enforcement deadline (Feb 28, 2026 00:00:00 UTC) |
